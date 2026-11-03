@@ -1,72 +1,181 @@
-name: Build XHYN V Plus APK
+name: Build XHYN V 0.2 Hotfix 2 APK
 
 on:
   push:
+    branches: [Test]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: xhyn-v02-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-apk:
-    name: Build and sign APK
+    name: Verify, patch and package APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Check required build inputs
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build unzip zip maven
+
+      - name: Install pinned Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r modifications/v0.2/requirements.txt
+
+      - name: Download and verify original base APK
+        env:
+          XHYN_BASE_APK_URL: ${{ secrets.XHYN_BASE_APK_URL }}
         shell: bash
         run: |
           set -euo pipefail
-          missing=0
-          for path in \
-            modifications/decoded/AndroidManifest.xml \
-            tools/apktool.jar \
-            recovered/hotfix2/extracted/XHYN-V-r30-Hotfix2/toolchain/android-ui/apksigner.jar
-          do
-            if [[ ! -f "$path" ]]; then
-              echo "::error::Missing required build input: $path"
-              missing=1
-            fi
-          done
-          if [[ "$missing" -ne 0 ]]; then
-            echo "The build script needs the decoded base APK and its pinned Android tools."
-            echo "These files are not included in the public repository, so this runner cannot build the APK yet."
+          if [[ -z "${XHYN_BASE_APK_URL:-}" ]]; then
+            echo "::error::Add the Actions secret XHYN_BASE_APK_URL with a private/direct download URL for the exact supported original 1.7.26 APK."
             exit 1
           fi
+          mkdir -p "$RUNNER_TEMP/xhyn-input"
+          curl --fail --location --silent --show-error --retry 3 \
+            --connect-timeout 30 --max-time 600 \
+            "$XHYN_BASE_APK_URL" -o "$RUNNER_TEMP/xhyn-input/base.apk"
+          echo "da730ee5b153cdf9a162d2dacd7bec45f0bf8a143f928a29d359c5c97ae51191  $RUNNER_TEMP/xhyn-input/base.apk" | sha256sum --check -
 
-      - name: Build and sign XHYN V Plus APK
-        run: python modifications/scripts/build_apk.py
+      - name: Download and verify pinned Android tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, io, json, pathlib, urllib.request, zipfile
+          root = pathlib.Path("modifications")
+          out = pathlib.Path("$RUNNER_TEMP")
+          # RUNNER_TEMP is passed through the environment below.
+          out = pathlib.Path(__import__("os").environ["RUNNER_TEMP"]) / "xhyn-tools"
+          out.mkdir(parents=True, exist_ok=True)
+          items = json.loads((root / "android-toolchain-manifest.json").read_text())
+          for item in items:
+              print("Downloading", item["name"], flush=True)
+              data = urllib.request.urlopen(item["url"], timeout=180).read()
+              if "archive_sha1" in item:
+                  actual = hashlib.sha1(data).hexdigest()
+                  if actual != item["archive_sha1"]:
+                      raise SystemExit("Archive SHA-1 mismatch: " + item["name"])
+                  with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                      matches = [n for n in archive.namelist() if n.endswith(item["member_suffix"])]
+                      if len(matches) != 1:
+                          raise SystemExit("Expected one archive member for " + item["name"])
+                      payload = archive.read(matches[0])
+              else:
+                  payload = data
+              actual = hashlib.sha256(payload).hexdigest()
+              if actual != item["sha256"]:
+                  raise SystemExit("SHA-256 mismatch: " + item["name"])
+              (out / item["name"]).write_bytes(payload)
+          PY
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
 
-      - name: Upload APK
+      - name: Download and verify Apktool 2.12.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/xhyn-tools"
+          curl --fail --location --silent --show-error \
+            https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar \
+            -o "$RUNNER_TEMP/xhyn-tools/apktool.jar"
+          echo "66cf4524a4a45a7f56567d08b2c9b6ec237bcdd78cee69fd4a59c8a0243aeafa  $RUNNER_TEMP/xhyn-tools/apktool.jar" | sha256sum --check -
+
+      - name: Download and verify Android NDK r27c
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 \
+            https://dl.google.com/android/repository/android-ndk-r27c-linux.zip \
+            -o "$RUNNER_TEMP/android-ndk-r27c.zip"
+          echo "090e8083a715fdb1a3e402d0763c388abb03fb4e  $RUNNER_TEMP/android-ndk-r27c.zip" | sha1sum --check -
+          mkdir -p "$RUNNER_TEMP/xhyn-ndk"
+          unzip -q "$RUNNER_TEMP/android-ndk-r27c.zip" -d "$RUNNER_TEMP/xhyn-ndk"
+          test -f "$RUNNER_TEMP/xhyn-ndk/android-ndk-r27c/source.properties"
+          grep -q 'Pkg.Revision = 27.2.12479018' "$RUNNER_TEMP/xhyn-ndk/android-ndk-r27c/source.properties"
+
+      - name: Resolve pinned launcher UI test dependencies
+        run: |
+          mkdir -p "$RUNNER_TEMP/xhyn-ui"
+          mvn -B -f modifications/v0.2/tests/ui/pom.xml \
+            dependency:build-classpath \
+            -Dmdep.outputFile="$RUNNER_TEMP/xhyn-ui/classpath.txt"
+
+      - name: Download pinned Enjarify source
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            https://codeload.github.com/Storyyeller/enjarify/zip/6364dfb30f7862873b84ec5fad1d1286c526ba0b \
+            -o "$RUNNER_TEMP/enjarify.zip"
+          echo "090b26b33a5d598158b867d2e9e8216b91967dfdc8ac4e91feab16b9cad38d9b  $RUNNER_TEMP/enjarify.zip" | sha256sum --check -
+          mkdir -p "$RUNNER_TEMP/xhyn-enjarify"
+          unzip -q "$RUNNER_TEMP/enjarify.zip" -d "$RUNNER_TEMP/xhyn-enjarify"
+          mv "$RUNNER_TEMP/xhyn-enjarify"/enjarify-* "$RUNNER_TEMP/xhyn-enjarify/source"
+
+      - name: Build APK (signed if signing secrets are configured)
+        env:
+          XHYN_SIGNING_KEY_BASE64: ${{ secrets.XHYN_SIGNING_KEY_BASE64 }}
+          XHYN_SIGNING_KEY_ALIAS: ${{ secrets.XHYN_SIGNING_KEY_ALIAS }}
+          XHYN_SIGNING_PASSWORD: ${{ secrets.XHYN_SIGNING_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --input-apk "$RUNNER_TEMP/xhyn-input/base.apk"
+            --work-dir "$RUNNER_TEMP/xhyn-work"
+            --tools-dir "$RUNNER_TEMP/xhyn-tools"
+            --apktool "$RUNNER_TEMP/xhyn-tools/apktool.jar"
+            --ndk-root "$RUNNER_TEMP/xhyn-ndk/android-ndk-r27c"
+            --ui-classpath-file "$RUNNER_TEMP/xhyn-ui/classpath.txt"
+            --enjarify-root "$RUNNER_TEMP/xhyn-enjarify/source"
+          )
+          if [[ -n "${XHYN_SIGNING_KEY_BASE64:-}" || -n "${XHYN_SIGNING_KEY_ALIAS:-}" || -n "${XHYN_SIGNING_PASSWORD:-}" ]]; then
+            if [[ -z "${XHYN_SIGNING_KEY_BASE64:-}" || -z "${XHYN_SIGNING_KEY_ALIAS:-}" || -z "${XHYN_SIGNING_PASSWORD:-}" ]]; then
+              echo "::error::Signing requires all three secrets: XHYN_SIGNING_KEY_BASE64, XHYN_SIGNING_KEY_ALIAS and XHYN_SIGNING_PASSWORD."
+              exit 1
+            fi
+            printf '%s' "$XHYN_SIGNING_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/xhyn-release.p12"
+            printf '%s' "$XHYN_SIGNING_PASSWORD" > "$RUNNER_TEMP/xhyn-signing-password.txt"
+            args+=(--keystore "$RUNNER_TEMP/xhyn-release.p12" --key-alias "$XHYN_SIGNING_KEY_ALIAS" --password-file "$RUNNER_TEMP/xhyn-signing-password.txt")
+          fi
+          python modifications/v0.2/build.py "${args[@]}"
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: XHYN-V-Plus-APK
-          path: modifications/dist/XHYN-V-0.1.apk
+          name: XHYN-V-0.2-Hotfix2-APK
+          path: ${{ runner.temp }}/xhyn-work/XHYN-V-0.2-Hotfix2*.apk
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload build verification reports
+      - name: Upload build reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: XHYN-V-Plus-build-reports
-          path: |
-            modifications/reports/signature-verification.txt
-            modifications/reports/apk-verification.json
+          name: XHYN-V-0.2-Hotfix2-build-reports
+          path: ${{ runner.temp }}/xhyn-work/reports/
           if-no-files-found: ignore
           retention-days: 14
