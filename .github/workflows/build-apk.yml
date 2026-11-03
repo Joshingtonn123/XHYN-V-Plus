@@ -1,0 +1,72 @@
+name: Build XHYN V Plus APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Build and sign APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check required build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for path in \
+            modifications/decoded/AndroidManifest.xml \
+            tools/apktool.jar \
+            recovered/hotfix2/extracted/XHYN-V-r30-Hotfix2/toolchain/android-ui/apksigner.jar
+          do
+            if [[ ! -f "$path" ]]; then
+              echo "::error::Missing required build input: $path"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            echo "The build script needs the decoded base APK and its pinned Android tools."
+            echo "These files are not included in the public repository, so this runner cannot build the APK yet."
+            exit 1
+          fi
+
+      - name: Build and sign XHYN V Plus APK
+        run: python modifications/scripts/build_apk.py
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: XHYN-V-Plus-APK
+          path: modifications/dist/XHYN-V-0.1.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: XHYN-V-Plus-build-reports
+          path: |
+            modifications/reports/signature-verification.txt
+            modifications/reports/apk-verification.json
+          if-no-files-found: ignore
+          retention-days: 14
