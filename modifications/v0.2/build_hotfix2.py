@@ -276,6 +276,7 @@ def main() -> None:
                  "--alignment-preserved", "false", "--lib-page-alignment", "16384", "--out", final, unsigned])
     signature = run("signature-verification", [java, "-jar", signer, "verify", "--verbose", "--print-certs", final])
     (reports / "signature-verification.txt").write_text(signature, encoding="utf-8")
+    unsigned.unlink(missing_ok=True)  # Only the signed APK is published as the installable artifact.
 
     with zipfile.ZipFile(final) as built:
         built_names = set(built.namelist())
