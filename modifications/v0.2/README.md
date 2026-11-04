@@ -1,5 +1,9 @@
 # XHYN V 0.2 modification source
 
+## Hotfix 2 incremental build
+
+The automated Test-branch workflow now uses the dedicated Hotfix 2 incremental builder, build_hotfix2.py. See HOTFIX2-BUILD.md for the base-APK validation, supported source overlays, version configuration and signing requirements. The older build.py below remains the full build path from the exact original 1.7.26 APK; it must not be run against Hotfix 2.
+
 Java interface/configuration helpers, a C reporting/probe helper, shaders,
 translations, guarded binary patches, the complete build driver and tests for
 version 0.2 Hotfix 2. See [scope](scope.json), [implementation status](STATUS.md) and

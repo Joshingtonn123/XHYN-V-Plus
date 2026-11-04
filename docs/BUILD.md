@@ -2,6 +2,8 @@
 
 ## 0.2
 
+For the automated Test-branch build from the already-patched Hotfix 2 release, use the [Hotfix 2 incremental build guide](../modifications/v0.2/HOTFIX2-BUILD.md) and [build_hotfix2.py](../modifications/v0.2/build_hotfix2.py). This replaces only the dedicated helper DEX and native helper, rather than repeating the original-base patch steps described below.
+
 The current [0.2 source](../modifications/v0.2/README.md) includes the complete exact-base build driver, Java/C helpers, shaders, patches and checks. It targets 1.7.26 and requires NDK r27c alongside the pinned Java/Android tools. Hotfix 2 also requires the pinned Robolectric/JUnit classpath and Enjarify checkout, and runs launcher-view tests before packaging. Native observer forwarding, concurrency, ASan/UBSan and ARM64 trampoline checks also run before packaging. The added profileable manifest entry permits developer CPU profiling on supported devices. See its [implementation status](../modifications/v0.2/STATUS.md) for device-testing limits.
 
 ## 1.7.4 English test build
