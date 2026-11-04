@@ -13,19 +13,24 @@ The builder validates the base APK SHA-256 and checks that Hotfix 2's classes7.d
 
 ## Name and version
 
-Edit modifications/v0.2/build-config.json. The defaults are app_name "XHYN V Reborn", version_name "0.2.1-dev", version_code_base 200000, append_build_number true, and package_name null.
+Edit modifications/v0.2/build-config.json. The current app_name is "XHYN V Plus", version_name is "0.2.1-dev", version_code_base is 200000, append_build_number is true, and package_name is null.
 
 For example, run 12 produces app version 0.2.1-dev-build12 and a version code derived from 200000 + (12 * 100) + run_attempt. Set append_build_number to false to keep the displayed version name exact while the numeric Android version code still advances. package_name null preserves the Hotfix 2 app ID; set a valid Android application ID only when intentionally changing the app ID.
 
-## Signing requirement
+## One-time signing setup (Android-friendly)
 
-Every modified APK must be signed. Configure these repository Actions secrets once:
+The signing key must stay identical across all future builds. Do not generate a new key for each APK.
 
-- XHYN_SIGNING_KEY_BASE64: Base64-encoded PKCS#12 keystore file.
-- XHYN_SIGNING_KEY_ALIAS: key alias inside that keystore.
-- XHYN_SIGNING_PASSWORD: keystore/key password used by apksigner.
+1. In the repository, open Settings → Secrets and variables → Actions → New repository secret.
+2. Create the secret named XHYN_SIGNING_PASSWORD. Use a strong password of at least 20 characters, and save it privately. Do not put the password in a commit, issue, workflow input, or chat.
+3. Open Actions → "Generate XHYN V Plus signing keystore" → Run workflow on branch Test.
+4. When the run finishes, open it and download the artifact named XHYNVPLUS-signing-keystore. It contains xhynvplus.p12, encrypted with the password from step 2.
+5. Extract the ZIP on your phone. In the repository's Test branch, use Add file → Upload files to upload xhynvplus.p12 into a folder named signing, so the final path is signing/xhynvplus.p12. Commit that file to Test.
+6. Keep the XHYN_SIGNING_PASSWORD secret and signing/xhynvplus.p12 unchanged for every future build.
 
-Keep using the same keystore for all future builds so Android accepts them as updates to your previous fork build. The private key is not stored in the repository or uploaded as an artifact. Because the fork cannot sign with the upstream release's private key, the first install of the fork may require uninstalling the upstream Hotfix 2 app first, especially when retaining its package ID. After that, keep the fork keystore unchanged.
+The .p12 file is password-protected, but it is still sensitive signing material. Use a long, unique password; do not share it. If the repository is public, anyone can download the encrypted file and attempt offline password guesses, so a high-entropy password is essential. Consider making the repository private. Never upload an unencrypted keystore.
+
+The generated keystore uses PKCS#12, RSA 3072, and alias XHYNVPLUS. The app's displayed name is controlled separately by build-config.json.
 
 ## What is not rerun
 
@@ -33,4 +38,4 @@ Hotfix 2 already contains the original 0.2 native-language, UI and runtime integ
 
 ## Output
 
-A successful commit to Test creates a newly rebuilt and signed APK plus SHA256SUMS.txt as a GitHub Actions artifact. It is not a renamed copy of Hotfix 2. Artifacts are retained for 14 days.
+A successful commit to Test creates a newly rebuilt and signed APK plus SHA256SUMS.txt as a GitHub Actions artifact. It is not a renamed copy of Hotfix 2. APK artifacts are retained for 14 days.
