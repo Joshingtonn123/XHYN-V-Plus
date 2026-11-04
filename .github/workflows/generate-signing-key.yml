@@ -1,0 +1,51 @@
+name: Generate XHYN V Plus signing keystore
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate-keystore:
+    name: Create password-protected PKCS12 signing key
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate password secret
+        env:
+          XHYN_SIGNING_PASSWORD: ${{ secrets.XHYN_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${XHYN_SIGNING_PASSWORD:-}" ]]; then
+            echo "::error::First create the repository Actions secret XHYN_SIGNING_PASSWORD."
+            exit 1
+          fi
+          if [[ ${#XHYN_SIGNING_PASSWORD} -lt 20 ]]; then
+            echo "::error::Use a password of at least 20 characters."
+            exit 1
+          fi
+      - name: Generate RSA 3072 PKCS12 keystore
+        env:
+          XHYN_SIGNING_PASSWORD: ${{ secrets.XHYN_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p signing-output
+          keytool -genkeypair -noprompt \
+            -keystore signing-output/xhynvplus.p12 \
+            -storetype PKCS12 \
+            -storepass "$XHYN_SIGNING_PASSWORD" \
+            -keypass "$XHYN_SIGNING_PASSWORD" \
+            -alias XHYNVPLUS \
+            -keyalg RSA -keysize 3072 -validity 10000 \
+            -dname "CN=XHYN V Plus,O=XHYNVPLUS,C=IQ"
+          keytool -list -keystore signing-output/xhynvplus.p12 \
+            -storetype PKCS12 -storepass "$XHYN_SIGNING_PASSWORD" \
+            -alias XHYNVPLUS
+      - name: Upload encrypted keystore
+        uses: actions/upload-artifact@v4
+        with:
+          name: XHYNVPLUS-signing-keystore
+          path: signing-output/xhynvplus.p12
+          if-no-files-found: error
+          retention-days: 7
