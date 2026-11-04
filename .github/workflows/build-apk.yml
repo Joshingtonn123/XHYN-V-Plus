@@ -97,17 +97,15 @@ jobs:
           grep -q 'Pkg.Revision = 27.2.12479018' "$RUNNER_TEMP/xhyn-ndk/android-ndk-r27c/source.properties"
       - name: Build and sign this commit's APK
         env:
-          XHYN_SIGNING_KEY_BASE64: ${{ secrets.XHYN_SIGNING_KEY_BASE64 }}
-          XHYN_SIGNING_KEY_ALIAS: ${{ secrets.XHYN_SIGNING_KEY_ALIAS }}
           XHYN_SIGNING_PASSWORD: ${{ secrets.XHYN_SIGNING_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${XHYN_SIGNING_KEY_BASE64:-}" || -z "${XHYN_SIGNING_KEY_ALIAS:-}" || -z "${XHYN_SIGNING_PASSWORD:-}" ]]; then
-            echo "::error::Configure repository secrets XHYN_SIGNING_KEY_BASE64, XHYN_SIGNING_KEY_ALIAS and XHYN_SIGNING_PASSWORD. Keep one persistent keystore for all future builds."
+          KEYSTORE="$GITHUB_WORKSPACE/signing/xhynvplus.p12"
+          if [[ ! -f "$KEYSTORE" || -z "${XHYN_SIGNING_PASSWORD:-}" ]]; then
+            echo "::error::Add signing/xhynvplus.p12 to the Test branch and configure the repository secret XHYN_SIGNING_PASSWORD. See modifications/v0.2/HOTFIX2-BUILD.md."
             exit 1
           fi
-          printf '%s' "$XHYN_SIGNING_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/xhyn-release.p12"
           printf '%s' "$XHYN_SIGNING_PASSWORD" > "$RUNNER_TEMP/xhyn-signing-password.txt"
           python modifications/v0.2/build_hotfix2.py \
             --input-apk "$RUNNER_TEMP/xhyn-input/base.apk" \
@@ -115,8 +113,8 @@ jobs:
             --tools-dir "$RUNNER_TEMP/xhyn-tools" \
             --apktool "$RUNNER_TEMP/xhyn-tools/apktool.jar" \
             --ndk-root "$RUNNER_TEMP/xhyn-ndk/android-ndk-r27c" \
-            --keystore "$RUNNER_TEMP/xhyn-release.p12" \
-            --key-alias "$XHYN_SIGNING_KEY_ALIAS" \
+            --keystore "$KEYSTORE" \
+            --key-alias "XHYNVPLUS" \
             --password-file "$RUNNER_TEMP/xhyn-signing-password.txt"
       - name: Upload freshly built APK and checksum
         uses: actions/upload-artifact@v4
