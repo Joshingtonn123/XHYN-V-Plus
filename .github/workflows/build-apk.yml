@@ -103,7 +103,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "@@DOLLAR${{XHYN_SIGNING_KEY_BASE64:-}" || -z "@@DOLLAR${{XHYN_SIGNING_KEY_ALIAS:-}" || -z "@@DOLLAR${{XHYN_SIGNING_PASSWORD:-}" ]]; then
+          if [[ -z "${XHYN_SIGNING_KEY_BASE64:-}" || -z "${XHYN_SIGNING_KEY_ALIAS:-}" || -z "${XHYN_SIGNING_PASSWORD:-}" ]]; then
             echo "::error::Configure repository secrets XHYN_SIGNING_KEY_BASE64, XHYN_SIGNING_KEY_ALIAS and XHYN_SIGNING_PASSWORD. Keep one persistent keystore for all future builds."
             exit 1
           fi
